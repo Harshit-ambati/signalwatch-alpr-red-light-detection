@@ -7,6 +7,9 @@ from uuid import uuid4
 from zipfile import ZipFile
 import cv2
 import streamlit as st
+from alpr.auth import configured_password, password_matches
+from alpr.bundle import export_run, restore_run
+from alpr.evaluate import evaluate, read_ground_truth
 from alpr.rules import parse_intervals
 from alpr.pipeline import process
 
@@ -17,9 +20,24 @@ div[data-testid="stMetric"] {background:#172338;padding:18px;border-radius:12px;
 st.caption('SIGNALWATCH / FINAL-YEAR PROJECT')
 st.title('Traffic evidence, in one place.')
 st.write('Analyze recorded traffic, inspect potential red-light crossings, and review plate readings.')
+expected_password = configured_password(st.secrets)
+if not expected_password:
+    st.error('Access is not configured. Set APP_PASSWORD in Streamlit Cloud secrets before using this app.')
+    st.stop()
+if not st.session_state.get('authenticated', False):
+    with st.form('login'):
+        password = st.text_input('Access password', type='password')
+        submitted = st.form_submit_button('Unlock app')
+    if submitted:
+        if password_matches(password, expected_password):
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error('Incorrect password.')
+    st.stop()
 if 'review_session_id' not in st.session_state:
     st.session_state.review_session_id = uuid4().hex
-setup, review, guide = st.tabs(['Analyze video', 'Evidence review', 'Project guide'])
+setup, review, evaluation, guide = st.tabs(['Analyze video', 'Evidence review', 'Evaluate', 'Project guide'])
 
 with setup:
     left,right = st.columns([1,1.8],gap='large')
@@ -92,6 +110,14 @@ with setup:
             st.error(f'Analysis could not complete: {exc}')
 
 with review:
+    restore_file=st.file_uploader('Restore an evidence bundle',type=['zip'])
+    if restore_file and st.button('Restore evidence'):
+        try:
+            restored=restore_run(restore_file.getvalue(),st.session_state.review_session_id)
+            st.success(f'Restored analysis {restored.name}.')
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
     files=[]
     for candidate in Path('data/runs').glob('*/results.json'):
         try:
@@ -109,6 +135,8 @@ with review:
         a.metric('Potential violations',len(events));b.metric('Plate candidates',sum(bool(e['plate']) for e in events));c.metric('Pending review',sum(e['review']=='pending' for e in events))
         st.caption(f"Status: {data['status']} · Source: {data['source']} · Signal: {data['config']['signal_mode']}")
         if data.get('error'):st.error(data['error'])
+        st.download_button('Download complete evidence bundle',export_run(selected.parent),
+                           f'signalwatch-{selected.parent.name}.zip','application/zip')
         if events:
             st.dataframe(events,use_container_width=True)
             export=io.StringIO();writer=csv.DictWriter(export,fieldnames=events[0].keys());writer.writeheader();writer.writerows(events)
@@ -134,6 +162,33 @@ with review:
                     temp=selected.with_suffix('.tmp');temp.write_text(json.dumps(data,indent=2),encoding='utf-8');temp.replace(selected)
                     st.rerun()
         else:st.info('No potential violations recorded. Check calibration and signal visibility before interpreting this as a clean result.')
+with evaluation:
+    st.write('Compare saved detections with manually labelled red-light crossings from the same video.')
+    available=[]
+    for candidate in Path('data/runs').glob('*/results.json'):
+        try:
+            record=json.loads(candidate.read_text(encoding='utf-8'))
+            if record.get('status')=='complete' and record.get('config',{}).get('review_session_id')==st.session_state.review_session_id:
+                available.append(candidate)
+        except (OSError,json.JSONDecodeError):
+            continue
+    if available:
+        chosen=st.selectbox('Run to evaluate',available,format_func=lambda p:p.parent.name)
+        labels=st.file_uploader('Ground truth CSV',type=['csv'])
+        st.caption('CSV columns: video_seconds,plate. Include one row per true red-light crossing. Leave plate blank when unreadable.')
+        if labels:
+            try:
+                truth=read_ground_truth(labels.getvalue().decode('utf-8-sig'))
+                result=evaluate(json.loads(chosen.read_text(encoding='utf-8'))['events'],truth)
+                c1,c2,c3=st.columns(3)
+                c1.metric('Correctly matched',result['tp'])
+                c2.metric('False alarms',result['fp'])
+                c3.metric('Missed crossings',result['fn'])
+                st.write({key:round(value,3) if isinstance(value,float) else value for key,value in result.items()})
+            except (ValueError,UnicodeDecodeError) as exc:
+                st.error(str(exc))
+    else:
+        st.info('Analyze or restore a run to evaluate it.')
 with guide:
     st.markdown('''### How it works
 1. Upload a fixed-camera recording and calibrate its stop line and signal region.

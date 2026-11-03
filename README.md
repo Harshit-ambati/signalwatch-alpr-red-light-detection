@@ -10,13 +10,15 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m streamlit run app.py --server.address 127.0.0.1
 ```
 
-Open http://localhost:8501. The development session launched during implementation is at http://127.0.0.1:8502. First analysis downloads YOLO11n and (if enabled) EasyOCR weights; these have already been downloaded on this machine. CPU supported; processing is not guaranteed real-time. Use a short clip first. Bind only to localhost: this prototype has no authentication.
+Set `SIGNALWATCH_PASSWORD` in your local environment, then open http://localhost:8501. First analysis downloads YOLO11n and (if enabled) EasyOCR weights. CPU supported; processing is not guaranteed real-time. Use a short clip first.
 
 ## Deploy on Streamlit Community Cloud
 
 Connect the GitHub repository and set the entrypoint to `app.py`, branch `main`, Python 3.12. Dependencies are declared in `requirements.txt` and `packages.txt`. The first launch downloads the vehicle and OCR models, so startup and analysis can be slow. Uploaded files, model downloads, evidence, and review decisions are stored on the app instance's local filesystem; they may disappear when the instance restarts. This is a demonstration deployment, not durable evidence storage. You may need a larger host if model installation or inference exceeds Community Cloud resources.
 
-Runs are visible only in the browser session that created them. Download the event CSV and each event's evidence ZIP before closing the session. This separation does not replace authentication for a production deployment.
+Before opening the deployed app, set a strong `APP_PASSWORD` in Streamlit Cloud → Manage app → Settings → Secrets, using TOML syntax such as `APP_PASSWORD = "your-own-long-random-password"`. Do not put the actual password in the repository. The app stays locked until this secret exists. Everyone given this password can access the app, so treat it as a single-reviewer demo, not a multi-user account system.
+
+Runs are visible only in the browser session that created them. Download the complete evidence bundle before closing the session. Use **Restore an evidence bundle** after a cloud restart or in a new session. This is manual persistence; cloud local storage is still temporary.
 
 ## Workflow
 
@@ -47,10 +49,10 @@ Final recorded footage requires new calibration, not code changes. Check source 
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Evaluate detection precision/recall against manually labelled crossings, full-plate exact-match accuracy against readable ground truth, unknown-plate rate, and processing FPS. Split development and evaluation footage. Do not report synthetic tests as real-world accuracy.
+The **Evaluate** tab accepts a CSV with `video_seconds,plate`, one row per true red-light crossing in the same video. Leave the plate blank if unreadable. It reports matched crossings, false alarms, missed crossings, precision, recall, and plate exact-match accuracy for readable matched plates. Match tolerance is 0.5 seconds. Split development and evaluation footage. Do not report synthetic tests as real-world accuracy.
 
 ## Architecture and remaining research
 
-`app.py`: Streamlit upload/calibration/review UI. `alpr/pipeline.py`: inference orchestration and evidence storage. `alpr/rules.py`: direction, segment intersection, timing and deduplication. `alpr/vision.py`: signal classifier and plate OCR. Filesystem JSON persistence is suitable for a single-user project; a multi-user deployment would need authentication, database transactions and a background job queue.
+`app.py`: Streamlit upload/calibration/review UI. `alpr/pipeline.py`: inference orchestration and evidence storage. `alpr/rules.py`: direction, segment intersection, timing and deduplication. `alpr/vision.py`: signal classifier and plate OCR. `alpr/bundle.py`: evidence export and restore. `alpr/evaluate.py`: labelled event matching and metrics. The password gate protects this demo, but a multi-user deployment would need individual accounts, durable storage, database transactions and a background job queue.
 
 Remaining validation: representative footage, a trained regional plate detector, calibration of signal thresholds, plate format evaluation, and measurement of tracking/occlusion errors. Red-light rules for turns are not implemented. This system produces potential violations for human review, not automatic fines.
