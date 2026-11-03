@@ -3,6 +3,8 @@ import hashlib
 import io
 import json
 from pathlib import Path
+from uuid import uuid4
+from zipfile import ZipFile
 import cv2
 import streamlit as st
 from alpr.rules import parse_intervals
@@ -15,6 +17,8 @@ div[data-testid="stMetric"] {background:#172338;padding:18px;border-radius:12px;
 st.caption('SIGNALWATCH / FINAL-YEAR PROJECT')
 st.title('Traffic evidence, in one place.')
 st.write('Analyze recorded traffic, inspect potential red-light crossings, and review plate readings.')
+if 'review_session_id' not in st.session_state:
+    st.session_state.review_session_id = uuid4().hex
 setup, review, guide = st.tabs(['Analyze video', 'Evidence review', 'Project guide'])
 
 with setup:
@@ -76,7 +80,8 @@ with setup:
             if plate_model and not Path(plate_model).is_file(): raise ValueError('Plate model file does not exist.')
             config={'line':[[x1/100,y1/100],[x2/100,y2/100]],'roi':[rx1/100,ry1/100,rx2/100,ry2/100],
                     'direction':1 if direction=='Above to below' else -1,'signal_mode':mode,
-                    'red_intervals':intervals,'ocr':ocr,'plate_model':plate_model or None,'max_seconds':limit}
+                    'red_intervals':intervals,'ocr':ocr,'plate_model':plate_model or None,
+                    'max_seconds':limit,'review_session_id':st.session_state.review_session_id}
             bar=st.progress(0); status=st.empty(); display=st.empty()
             def update(fraction,image,count):
                 bar.progress(fraction);status.write(f'{count} potential violations recorded');display.image(image,channels='BGR')
@@ -87,8 +92,16 @@ with setup:
             st.error(f'Analysis could not complete: {exc}')
 
 with review:
-    files=sorted(Path('data/runs').glob('*/results.json'),key=lambda p:p.stat().st_mtime,reverse=True)
-    if not files: st.info('Your completed analyses will appear here.')
+    files=[]
+    for candidate in Path('data/runs').glob('*/results.json'):
+        try:
+            details=json.loads(candidate.read_text(encoding='utf-8'))
+            if details.get('config',{}).get('review_session_id')==st.session_state.review_session_id:
+                files.append(candidate)
+        except (OSError, json.JSONDecodeError):
+            continue
+    files.sort(key=lambda p:p.stat().st_mtime,reverse=True)
+    if not files: st.info('Analyses from this browser session will appear here. Export evidence before closing the session.')
     else:
         selected=st.selectbox('Analysis',files,format_func=lambda p:p.parent.name)
         data=json.loads(selected.read_text(encoding='utf-8'));events=data['events']
@@ -106,6 +119,12 @@ with review:
             for col,name,label in zip(columns,['before.jpg','crossing.jpg','plate.jpg'],['Before crossing','Crossing evidence','Plate candidate']):
                 if (folder/name).exists():col.image(str(folder/name),caption=label,use_container_width=True)
                 else:col.info(f'{label}: unavailable')
+            evidence=io.BytesIO()
+            with ZipFile(evidence,'w') as archive:
+                for name in ['before.jpg','crossing.jpg','vehicle.jpg','plate.jpg']:
+                    item=folder/name
+                    if item.is_file():archive.write(item,arcname=name)
+            st.download_button('Download event evidence',evidence.getvalue(),f'evidence-{event_id}.zip','application/zip')
             with st.form(f'review-{selected.parent.name}-{event_id}'):
                 corrected=st.text_input('Human-verified plate',value=event.get('corrected_plate',''))
                 options=['pending','confirmed','rejected']

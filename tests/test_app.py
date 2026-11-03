@@ -17,9 +17,11 @@ def test_review_is_saved(tmp_path,monkeypatch):
     monkeypatch.chdir(tmp_path)
     folder=tmp_path/'data/runs/test';folder.mkdir(parents=True)
     result=folder/'results.json'
-    result.write_text(json.dumps({'status':'complete','source':'fixture.avi','config':{'signal_mode':'Manual timeline'},
-        'events':[{'id':'0001','track_id':1,'video_seconds':1,'plate':'','review':'pending','corrected_plate':''}]}))
     app=AppTest.from_file(str(entry)).run(timeout=30)
+    session_id=app.session_state['review_session_id']
+    result.write_text(json.dumps({'status':'complete','source':'fixture.avi','config':{'signal_mode':'Manual timeline','review_session_id':session_id},
+        'events':[{'id':'0001','track_id':1,'video_seconds':1,'plate':'','review':'pending','corrected_plate':''}]}))
+    app.run(timeout=30)
     assert not app.exception
     next(x for x in app.text_input if x.label=='Human-verified plate').set_value('TEST123')
     next(x for x in app.selectbox if x.label=='Review decision').select('confirmed')
@@ -29,3 +31,14 @@ def test_review_is_saved(tmp_path,monkeypatch):
     saved=json.loads(result.read_text())['events'][0]
     assert saved['corrected_plate']=='TEST123'
     assert saved['review']=='confirmed'
+
+
+def test_other_session_evidence_is_hidden(tmp_path,monkeypatch):
+    entry=Path(__file__).resolve().parents[1]/'app.py'
+    monkeypatch.chdir(tmp_path)
+    folder=tmp_path/'data/runs/private';folder.mkdir(parents=True)
+    (folder/'results.json').write_text(json.dumps({'status':'complete','source':'private.avi',
+        'config':{'signal_mode':'Manual timeline','review_session_id':'another-session'},'events':[]}))
+    app=AppTest.from_file(str(entry)).run(timeout=30)
+    assert not app.exception
+    assert not any(select.label=='Analysis' for select in app.selectbox)

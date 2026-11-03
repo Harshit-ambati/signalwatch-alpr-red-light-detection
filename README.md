@@ -16,6 +16,8 @@ Open http://localhost:8501. The development session launched during implementati
 
 Connect the GitHub repository and set the entrypoint to `app.py`, branch `main`, Python 3.12. Dependencies are declared in `requirements.txt` and `packages.txt`. The first launch downloads the vehicle and OCR models, so startup and analysis can be slow. Uploaded files, model downloads, evidence, and review decisions are stored on the app instance's local filesystem; they may disappear when the instance restarts. This is a demonstration deployment, not durable evidence storage. You may need a larger host if model installation or inference exceeds Community Cloud resources.
 
+Runs are visible only in the browser session that created them. Download the event CSV and each event's evidence ZIP before closing the session. This separation does not replace authentication for a production deployment.
+
 ## Workflow
 
 Upload MP4/AVI/MOV/MKV → calibrate line and signal rectangle → select direction → analyze → evidence review → correct OCR and confirm/reject → export CSV.
