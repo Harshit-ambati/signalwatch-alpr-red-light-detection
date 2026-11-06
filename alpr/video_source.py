@@ -40,7 +40,10 @@ def download_youtube(url, directory=Path('data/uploads')):
             raise ValueError('YouTube video exceeds the 100 MB import limit.')
 
     options = {
-        'format': 'best[ext=mp4][height<=480][filesize<100M]/best[ext=mp4][height<=480]',
+        # Analysis needs frames, not audio. Many YouTube videos offer no combined MP4.
+        # Bound both dimensions so portrait and landscape videos get comparable quality.
+        'format': ('bestvideo[ext=mp4][vcodec^=avc1][width<=854][height<=854]/'
+                   'bestvideo[ext=mp4][width<=854][height<=854]'),
         'outtmpl': str(output), 'noplaylist': True, 'quiet': True, 'no_warnings': True,
         'overwrites': True, 'max_filesize': MAX_BYTES, 'progress_hooks': [check_size],
         'socket_timeout': 20, 'retries': 2, 'fragment_retries': 2,

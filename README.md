@@ -24,7 +24,7 @@ Runs are visible only in the browser session that created them. Download the com
 
 Upload MP4/AVI/MOV/MKV or import a public YouTube URL → check suggested line and signal rectangle → select direction → analyze → evidence review → correct OCR and confirm/reject → export CSV.
 
-YouTube import accepts public watch, Shorts and youtu.be links for finished recordings. It limits duration to 10 minutes and downloaded size to 100 MB, and requests a single MP4 stream at 480p or lower. Import may fail if a video is unavailable, age restricted, or YouTube blocks automated access. YouTube live streams require a separate live ingestion system. Only import footage you have permission to use.
+YouTube import accepts public watch, Shorts and youtu.be links for finished recordings. It limits duration to 10 minutes and downloaded size to 100 MB, and requests a video-only MP4 stream within 854 × 854 pixels. Audio is unnecessary for traffic analysis. Import may fail if a video is unavailable, age restricted, or YouTube blocks automated access. YouTube live streams require a separate live ingestion system. Only import footage you have permission to use.
 
 The calibration suggestion uses visible road edges and colored light candidates in the first frame. It can choose a lane marking, vehicle light, or the wrong traffic signal. Inspect the preview and adjust the sliders as needed; the correct stop line and signal for the monitored lane are essential to a valid result.
 

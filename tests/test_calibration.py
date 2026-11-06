@@ -42,6 +42,7 @@ def test_youtube_import_checks_duration_before_download(tmp_path, monkeypatch):
     class FakeDownloader:
         def __init__(self, options):
             self.options = options
+            assert 'bestvideo[ext=mp4]' in options['format']
 
         def __enter__(self): return self
         def __exit__(self, *_): return False
