@@ -3,7 +3,7 @@ import json
 from types import SimpleNamespace
 import cv2
 import numpy as np
-from alpr.pipeline import process
+from alpr.pipeline import box_iou, process
 
 
 class Tensor:
@@ -11,6 +11,11 @@ class Tensor:
     def cpu(self): return self
     def int(self): return self
     def tolist(self): return self.data
+
+
+def test_duplicate_vehicle_boxes_have_high_overlap():
+    assert box_iou([0, 0, 100, 100], [2, 1, 101, 99]) > .7
+    assert box_iou([0, 0, 100, 100], [110, 0, 210, 100]) == 0
 
 
 def test_pipeline_persists_crossing_and_evidence(tmp_path,monkeypatch):
@@ -25,7 +30,8 @@ def test_pipeline_persists_crossing_and_evidence(tmp_path,monkeypatch):
         def __init__(self,*args):self.frame=0
         def track(self,*args,**kwargs):
             bottom=80+self.frame*10;self.frame+=1
-            return [SimpleNamespace(boxes=SimpleNamespace(id=Tensor([1]),xyxy=Tensor([[80,bottom-30,120,bottom]])))]
+            same_vehicle=[80,bottom-30,120,bottom]
+            return [SimpleNamespace(boxes=SimpleNamespace(id=Tensor([1,2]),xyxy=Tensor([same_vehicle,same_vehicle])))]
     monkeypatch.setattr(ultralytics,'YOLO',Detector)
     config={'line':[[.2,.5],[.8,.5]],'direction':1,'ocr':False,'signal_mode':'Manual timeline','red_intervals':[[0,1]],'max_seconds':0}
     run=process(video,config)
@@ -35,7 +41,7 @@ def test_pipeline_persists_crossing_and_evidence(tmp_path,monkeypatch):
     assert result['events'][0]['plate']==''
     assert result['events'][0]['video_seconds']==.2
     assert result['diagnostics']['signal_frames']['red']==5
-    assert result['diagnostics']['line_crossings']>=1
+    assert result['diagnostics']['line_crossings']==2
     assert (run/'0001'/'before.jpg').is_file()
     assert (run/'0001'/'crossing.jpg').is_file()
 

@@ -7,6 +7,16 @@ from .rules import CrossingDetector
 from .vision import signal_state, PlateReader
 
 
+def box_iou(a, b):
+    x1, y1 = max(a[0], b[0]), max(a[1], b[1])
+    x2, y2 = min(a[2], b[2]), min(a[3], b[3])
+    intersection = max(0, x2-x1) * max(0, y2-y1)
+    area_a = max(0, a[2]-a[0]) * max(0, a[3]-a[1])
+    area_b = max(0, b[2]-b[0]) * max(0, b[3]-b[1])
+    union = area_a + area_b - intersection
+    return intersection / union if union else 0.0
+
+
 def process(video, config, progress=None):
     from ultralytics import YOLO
     cap = cv2.VideoCapture(str(video))
@@ -31,6 +41,7 @@ def process(video, config, progress=None):
         rules = CrossingDetector(config['line'][0], config['line'][1], config['direction'])
         previous_frames = {}
         recent_crops = {}
+        recent_reports = []
         raw_state, stable_count = 'unknown', 0
         signal_counts = {'red': 0, 'green': 0, 'amber': 0, 'unknown': 0}
         index = 0
@@ -73,6 +84,11 @@ def process(video, config, progress=None):
                         recent_crops.setdefault(track,[]).append(crop.copy())
                         recent_crops[track] = recent_crops[track][-4:]
                     if crossed:
+                        recent_reports = [(when, reported_box) for when, reported_box in recent_reports if t-when <= 0.5]
+                        if any(box_iou(box, reported_box) >= 0.7 for _, reported_box in recent_reports):
+                            previous_frames[track] = frame
+                            continue
+                        recent_reports.append((t, box))
                         event_id = f'{len(manifest["events"])+1:04d}'
                         folder = run/event_id
                         folder.mkdir()
