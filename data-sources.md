@@ -1,6 +1,6 @@
 # Temporary footage sources
 
-Reference video: https://www.youtube.com/watch?v=7UjyifjnzJg
+Historical reference video: https://www.youtube.com/watch?v=7UjyifjnzJg (currently private; use the creator repository's sample instead).
 
 Creator repository: https://github.com/AhmadYahya97/Fully-Automated-red-light-Violation-Detection
 

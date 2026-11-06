@@ -12,6 +12,8 @@ from alpr.bundle import export_run, restore_run
 from alpr.evaluate import evaluate, read_ground_truth
 from alpr.rules import parse_intervals
 from alpr.pipeline import process
+from alpr.calibration import suggest_geometry
+from alpr.video_source import download_youtube
 
 st.set_page_config(page_title='SignalWatch | Traffic review', page_icon='🚦', layout='wide')
 st.markdown('''<style>.stApp {background:#0c1423;} h1 {letter-spacing:-1.5px;}
@@ -42,20 +44,36 @@ setup, review, evaluation, guide = st.tabs(['Analyze video', 'Evidence review', 
 with setup:
     left,right = st.columns([1,1.8],gap='large')
     with left:
-        upload = st.file_uploader('Upload footage', type=['mp4','avi','mov','mkv'])
+        input_kind = st.radio('Video source', ['Upload file', 'YouTube link', 'Local sample'], horizontal=True)
+        upload = st.file_uploader('Upload footage', type=['mp4','avi','mov','mkv']) if input_kind == 'Upload file' else None
         samples = list(Path('data/samples').glob('*.mp4')) if Path('data/samples').exists() else []
-        sample = st.selectbox('Or choose a local sample', ['None']+[str(p) for p in samples],index=1 if samples else 0)
+        sample = st.selectbox('Local sample', ['None']+[str(p) for p in samples],index=1 if samples else 0) if input_kind == 'Local sample' else 'None'
+        if input_kind == 'YouTube link':
+            url = st.text_input('Public YouTube video URL', placeholder='https://www.youtube.com/watch?v=...')
+            if st.button('Import YouTube video'):
+                try:
+                    with st.spinner('Downloading a short MP4 for analysis…'):
+                        imported = download_youtube(url)
+                    st.session_state.youtube_source = str(imported)
+                    st.session_state.youtube_url = url.strip()
+                    st.success('Video imported. Review the proposed geometry before analysis.')
+                except Exception as exc:
+                    st.error(f'Import failed: {exc}')
+            st.caption('Finished public recordings only, up to 10 minutes and 100 MB. Import may fail when YouTube restricts automated access.')
         source = None
         if upload:
             content = upload.getvalue()
             folder = Path('data/uploads'); folder.mkdir(parents=True,exist_ok=True)
             source = folder/(hashlib.sha256(content).hexdigest()[:20]+Path(upload.name).suffix.lower())
             if not source.exists(): source.write_bytes(content)
+        elif input_kind == 'YouTube link' and url.strip() == st.session_state.get('youtube_url'):
+            source = Path(st.session_state.youtube_source)
+            if not source.is_file(): source = None
         elif sample != 'None': source = Path(sample)
         mode = st.selectbox('Signal source',['Visible traffic light','Manual timeline'])
         st.caption('Manual intervals are supplied labels, not automatic signal recognition. Outside them, state is unknown.')
         intervals_text = st.text_input('Red intervals in video seconds','5-15, 30-45', disabled=mode!='Manual timeline')
-        preset = bool(source and not upload and source.name=='youtube.mp4')
+        preset = bool(source and source.name=='youtube.mp4')
         if preset:
             st.caption('Development sample: 5.16 seconds, 352 × 288. Preset geometry is approximate; plates are too small for dependable recognition.')
         direction = st.selectbox('Crossing direction',['Above to below','Below to above'],index=1 if preset else 0)
@@ -71,24 +89,41 @@ with setup:
                 source = None
             else:
                 st.subheader('Calibrate this camera')
-                st.caption('Coordinates are percentages of the frame. Move the yellow line onto the actual stop line and the blue box around the signal for your monitored lane.')
+                st.caption('The app suggests a stop line and signal location from the frame. Check both before analysis; colored lights and road markings can cause wrong suggestions.')
+                source_key = f'{source.resolve()}:{source.stat().st_size}'
+                geometry = suggest_geometry(frame)
+                keys = ['line_x1','line_y1','line_x2','line_y2','signal_x1','signal_y1','signal_x2','signal_y2']
+                proposed = [max(0, min(100, round(value * 100))) for value in
+                            geometry['line'][0] + geometry['line'][1] + geometry['roi']]
+                proposed[4] = min(99, proposed[4]); proposed[5] = min(99, proposed[5])
+                proposed[6] = max(1, proposed[6]); proposed[7] = max(1, proposed[7])
+                if st.session_state.get('geometry_source') != source_key:
+                    st.session_state.geometry_source = source_key
+                    for key, value in zip(keys, proposed):
+                        st.session_state[key] = value
+                if st.button('Suggest coordinates again'):
+                    for key, value in zip(keys, proposed):
+                        st.session_state[key] = value
+                    st.rerun()
+                if not geometry['line_found']:
+                    st.warning('No clear road line was found. Position the yellow line manually.')
+                if mode == 'Visible traffic light' and not geometry['signal_found']:
+                    st.warning('No clear signal light was found. Position the blue box manually.')
+                st.caption('Coordinates are percentages of the frame. The yellow line must match the stop line; the blue box must include only the signal for the monitored lane.')
                 c1,c2 = st.columns(2)
                 with c1:
-                    x1 = st.slider('Line start X',0,100,5 if preset else 10); y1 = st.slider('Line start Y',0,100,64 if preset else 60)
-                    rx1 = st.slider('Signal left',0,99,4 if preset else 80); ry1 = st.slider('Signal top',0,99,14 if preset else 5)
+                    x1 = st.slider('Line start X',0,100,key='line_x1'); y1 = st.slider('Line start Y',0,100,key='line_y1')
+                    rx1 = st.slider('Signal left',0,99,key='signal_x1'); ry1 = st.slider('Signal top',0,99,key='signal_y1')
                 with c2:
-                    x2 = st.slider('Line end X',0,100,90); y2 = st.slider('Line end Y',0,100,54 if preset else 60)
-                    rx2 = st.slider('Signal right',1,100,10 if preset else 95); ry2 = st.slider('Signal bottom',1,100,20 if preset else 30)
+                    x2 = st.slider('Line end X',0,100,key='line_x2'); y2 = st.slider('Line end Y',0,100,key='line_y2')
+                    rx2 = st.slider('Signal right',1,100,key='signal_x2'); ry2 = st.slider('Signal bottom',1,100,key='signal_y2')
                 h,w = frame.shape[:2]; preview=frame.copy()
                 cv2.line(preview,(x1*w//100,y1*h//100),(x2*w//100,y2*h//100),(0,220,255),3)
                 cv2.rectangle(preview,(rx1*w//100,ry1*h//100),(rx2*w//100,ry2*h//100),(255,150,0),2)
                 st.image(preview,channels='BGR',use_container_width=True)
                 st.caption('For the direction labels to apply, keep line start X smaller than line end X. Only vehicles crossing this finite segment are considered.')
         else:
-            st.info('Upload a video to calibrate the camera. Your final recording can replace the sample later.')
-            st.subheader('Reference demonstrations')
-            st.video('https://www.youtube.com/watch?v=7UjyifjnzJg')
-            st.caption('Reference playback only. Analysis requires a local video file; use original input footage when available.')
+            st.info('Choose a video source to calibrate the camera. Your final recording can replace the sample later.')
     if source and st.button('Analyze video',type='primary'):
         try:
             if x1 >= x2: raise ValueError('Line start X must be smaller than line end X.')
@@ -191,7 +226,7 @@ with evaluation:
         st.info('Analyze or restore a run to evaluate it.')
 with guide:
     st.markdown('''### How it works
-1. Upload a fixed-camera recording and calibrate its stop line and signal region.
+1. Upload a fixed-camera recording or import a public YouTube video. Check the suggested stop line and signal region.
 2. YOLO detects vehicles; ByteTrack assigns temporary tracking IDs.
 3. A bottom-center vehicle anchor must cross the line in the configured direction while both adjacent observations are red.
 4. Candidate plate regions are read with OCR from several recent vehicle crops.
@@ -201,7 +236,6 @@ with guide:
 This is a research prototype. Color-based signal detection needs a tightly cropped signal region. Plate localization without a trained plate detector is a simple rectangular-region baseline. Tracking ID changes, occlusion, camera movement, and unreadable plates can produce misses or errors. Turning permissions and jurisdiction-specific rules are not modeled. No fines are issued.
 
 ### Video references
-- [Red-light detection demonstration](https://www.youtube.com/watch?v=7UjyifjnzJg)
 - [Traffic signal detection demonstration](https://www.youtube.com/watch?v=PxHkKLUk_QM)
 - [Virtual-signal demonstration](https://www.youtube.com/watch?v=K5tCIU_1yP0)
 

@@ -4,3 +4,4 @@ opencv-python-headless>=4.10,<5
 easyocr>=1.7,<2
 lap>=0.5
 pytest>=8,<10
+yt-dlp>=2025.1

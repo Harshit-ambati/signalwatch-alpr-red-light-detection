@@ -22,7 +22,11 @@ Runs are visible only in the browser session that created them. Download the com
 
 ## Workflow
 
-Upload MP4/AVI/MOV/MKV → calibrate line and signal rectangle → select direction → analyze → evidence review → correct OCR and confirm/reject → export CSV.
+Upload MP4/AVI/MOV/MKV or import a public YouTube URL → check suggested line and signal rectangle → select direction → analyze → evidence review → correct OCR and confirm/reject → export CSV.
+
+YouTube import accepts public watch, Shorts and youtu.be links for finished recordings. It limits duration to 10 minutes and downloaded size to 100 MB, and requests a single MP4 stream at 480p or lower. Import may fail if a video is unavailable, age restricted, or YouTube blocks automated access. YouTube live streams require a separate live ingestion system. Only import footage you have permission to use.
+
+The calibration suggestion uses visible road edges and colored light candidates in the first frame. It can choose a lane marking, vehicle light, or the wrong traffic signal. Inspect the preview and adjust the sliders as needed; the correct stop line and signal for the monitored lane are essential to a valid result.
 
 Coordinates are normalized to video dimensions. The traffic light must control the monitored lane. Use a finite stop-line segment to exclude other lanes. The vehicle bottom-center anchor approximates its contact with the road. A crossing is flagged only if consecutive observations are red, the trajectory intersects the stop-line segment, and the observation gap is at most 0.5 seconds. The same track is reported once. Green-to-red transitions at the crossing are intentionally not flagged because timing is ambiguous.
 
@@ -34,9 +38,8 @@ Evidence lives in `data/runs/<run>/`: configuration and events in results.json, 
 
 ## Footage
 
-YouTube references are embedded for preview. A YouTube URL is not automatically imported as analysis footage. Prefer original input video from the creators' repositories, avoiding annotated output videos:
+You can import a public YouTube link in the Analyze tab, though original input footage from the creators' repositories is preferable to annotated output videos:
 
-- https://www.youtube.com/watch?v=7UjyifjnzJg
 - https://github.com/AhmadYahya97/Fully-Automated-red-light-Violation-Detection
 - https://www.youtube.com/watch?v=PxHkKLUk_QM
 - https://github.com/anmspro/Traffic-Signal-Violation-Detection-System
