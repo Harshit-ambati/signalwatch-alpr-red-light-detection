@@ -34,6 +34,8 @@ def test_pipeline_persists_crossing_and_evidence(tmp_path,monkeypatch):
     assert len(result['events'])==1
     assert result['events'][0]['plate']==''
     assert result['events'][0]['video_seconds']==.2
+    assert result['diagnostics']['signal_frames']['red']==5
+    assert result['diagnostics']['line_crossings']>=1
     assert (run/'0001'/'before.jpg').is_file()
     assert (run/'0001'/'crossing.jpg').is_file()
 

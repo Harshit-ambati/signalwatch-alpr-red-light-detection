@@ -90,6 +90,7 @@ with setup:
             else:
                 st.subheader('Calibrate this camera')
                 st.caption('The app suggests a stop line and signal location from the frame. Check both before analysis; colored lights and road markings can cause wrong suggestions.')
+                st.caption('This detector assumes a fixed camera. On a moving dashcam, the signal and stop line shift during the clip and fixed coordinates cannot give reliable violation results.')
                 source_key = f'{source.resolve()}:{source.stat().st_size}'
                 geometry = suggest_geometry(frame)
                 keys = ['line_x1','line_y1','line_x2','line_y2','signal_x1','signal_y1','signal_x2','signal_y2']
@@ -128,6 +129,8 @@ with setup:
         try:
             if x1 >= x2: raise ValueError('Line start X must be smaller than line end X.')
             if mode == 'Visible traffic light' and (rx1>=rx2 or ry1>=ry2): raise ValueError('Signal region must have positive width and height.')
+            if mode == 'Visible traffic light' and not geometry['signal_found'] and [rx1,ry1,rx2,ry2] == proposed[4:]:
+                raise ValueError('No traffic light was found automatically. Position the blue signal box manually before analyzing.')
             intervals = parse_intervals(intervals_text) if mode=='Manual timeline' else []
             if mode=='Manual timeline' and not intervals: raise ValueError('Enter at least one red interval.')
             if plate_model and not Path(plate_model).is_file(): raise ValueError('Plate model file does not exist.')
@@ -196,7 +199,18 @@ with review:
                     event.update(review=decision,corrected_plate=corrected.strip().upper())
                     temp=selected.with_suffix('.tmp');temp.write_text(json.dumps(data,indent=2),encoding='utf-8');temp.replace(selected)
                     st.rerun()
-        else:st.info('No potential violations recorded. Check calibration and signal visibility before interpreting this as a clean result.')
+        else:
+            st.info('No potential violations recorded. Check calibration and signal visibility before interpreting this as a clean result.')
+            diagnostics=data.get('diagnostics',{})
+            if diagnostics:
+                counts=diagnostics.get('signal_frames',{})
+                st.write(f"Signal frames: {counts.get('red',0)} red, {counts.get('green',0)} green, "
+                         f"{counts.get('amber',0)} amber, {counts.get('unknown',0)} unknown. "
+                         f"Vehicle crossings of the selected line: {diagnostics.get('line_crossings',0)}.")
+                if not counts.get('red'):
+                    st.warning('The selected signal box was never classified as red. Check that it follows the correct light throughout the clip.')
+                if not diagnostics.get('line_crossings'):
+                    st.warning('No tracked vehicle crossed the selected line segment. Check the line position, direction, and camera movement.')
 with evaluation:
     st.write('Compare saved detections with manually labelled red-light crossings from the same video.')
     available=[]

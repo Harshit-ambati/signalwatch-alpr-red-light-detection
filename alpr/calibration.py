@@ -35,6 +35,8 @@ def suggest_geometry(frame):
              cv2.inRange(hsv, (170, 120, 150), (179, 255, 255)) |
              cv2.inRange(hsv, (40, 100, 130), (95, 255, 255)) |
              cv2.inRange(hsv, (15, 120, 150), (35, 255, 255)))
+    # Titles and channel watermarks commonly occupy the top strip.
+    color[:int(height * 0.08)] = 0
     color[int(height * 0.55):] = 0
     count, _, stats, centers = cv2.connectedComponentsWithStats(color)
     candidates = []

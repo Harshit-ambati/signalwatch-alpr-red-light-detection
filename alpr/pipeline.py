@@ -32,6 +32,7 @@ def process(video, config, progress=None):
         previous_frames = {}
         recent_crops = {}
         raw_state, stable_count = 'unknown', 0
+        signal_counts = {'red': 0, 'green': 0, 'amber': 0, 'unknown': 0}
         index = 0
         while True:
             ok, frame = cap.read()
@@ -48,6 +49,7 @@ def process(video, config, progress=None):
                 stable_count = stable_count+1 if observed == raw_state else 1
                 raw_state = observed
                 state = observed if stable_count >= 3 else 'unknown'
+            signal_counts[state] += 1
             result = detector.track(frame, persist=True, tracker='bytetrack.yaml', classes=[2,3,5,7], conf=0.3, verbose=False)[0]
             annotated = frame.copy()
             a,b = [tuple((int(p[0]*w), int(p[1]*h))) for p in config['line']]
@@ -104,6 +106,8 @@ def process(video, config, progress=None):
             raise ValueError('No decodable frames found.')
         manifest['status'] = 'complete'
         manifest['processed_frames'] = index
+        manifest['diagnostics'] = {'signal_frames': signal_counts,
+                                   'line_crossings': rules.geometry_crossings}
     except Exception as exc:
         manifest['status'] = 'failed'
         manifest['error'] = str(exc)

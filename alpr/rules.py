@@ -18,6 +18,7 @@ class CrossingDetector:
             raise ValueError('Stop line endpoints must be different.')
         self.previous = {}
         self.reported = set()
+        self.geometry_crossings = 0
 
     def side(self, p):
         a, b = self.start, self.end
@@ -39,6 +40,7 @@ class CrossingDetector:
         length2 = sum((b[i]-a[i])**2 for i in (0, 1))
         if not 0 <= along <= length2:
             return False
+        self.geometry_crossings += 1
         # Require red on BOTH sides of crossing; ambiguous transitions need review.
         if old.signal != 'red' or signal != 'red':
             return False

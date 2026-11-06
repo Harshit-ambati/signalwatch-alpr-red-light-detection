@@ -26,7 +26,7 @@ Upload MP4/AVI/MOV/MKV or import a public YouTube URL → check suggested line a
 
 YouTube import accepts public watch, Shorts and youtu.be links for finished recordings. It limits duration to 10 minutes and downloaded size to 100 MB, and requests a video-only MP4 stream within 854 × 854 pixels. Audio is unnecessary for traffic analysis. Import may fail if a video is unavailable, age restricted, or YouTube blocks automated access. YouTube live streams require a separate live ingestion system. Only import footage you have permission to use.
 
-The calibration suggestion uses visible road edges and colored light candidates in the first frame. It can choose a lane marking, vehicle light, or the wrong traffic signal. Inspect the preview and adjust the sliders as needed; the correct stop line and signal for the monitored lane are essential to a valid result.
+The calibration suggestion uses visible road edges and colored light candidates in the first frame. It can choose a lane marking, vehicle light, or the wrong traffic signal. The top strip is ignored to reduce false signal selections from title overlays. Inspect the preview and adjust the sliders as needed; the correct stop line and signal for the monitored lane are essential to a valid result. A moving dashcam cannot be reliably calibrated with this fixed-camera workflow.
 
 Coordinates are normalized to video dimensions. The traffic light must control the monitored lane. Use a finite stop-line segment to exclude other lanes. The vehicle bottom-center anchor approximates its contact with the road. A crossing is flagged only if consecutive observations are red, the trajectory intersects the stop-line segment, and the observation gap is at most 0.5 seconds. The same track is reported once. Green-to-red transitions at the crossing are intentionally not flagged because timing is ambiguous.
 
@@ -35,6 +35,8 @@ Manual timeline mode uses user-entered red intervals in video seconds; it is not
 Vehicle detection: YOLO11n COCO vehicle classes. Tracking: ByteTrack. Signal: HSV color masks with three-frame stability. ALPR: experimental bright-rectangle proposals plus EasyOCR, or an optional local trained YOLO plate detector. Reads are candidates, never guaranteed registration numbers. Up to four recent crops and the crossing crop are checked. Missing readings remain blank.
 
 Evidence lives in `data/runs/<run>/`: configuration and events in results.json, before/crossing/vehicle images, and a plate image when recognized. Times are offsets into the video, not real-world violation times. Processing status distinguishes failures from completed runs. Review decisions persist in the JSON file. Uploads and runs remain until manually removed.
+
+New runs include signal-frame counts and the number of tracked vehicles crossing the selected line. When zero violations are reported, the review page displays these diagnostics. No red frames or no line crossings indicates a calibration or footage mismatch; neither is evidence that the road was violation-free.
 
 ## Footage
 

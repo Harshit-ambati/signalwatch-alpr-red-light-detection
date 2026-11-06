@@ -22,6 +22,13 @@ def test_blank_frame_requires_manual_geometry():
     assert not result['signal_found']
 
 
+def test_top_strip_watermark_is_not_selected_as_signal():
+    frame = np.zeros((200, 300, 3), dtype=np.uint8)
+    cv2.rectangle(frame, (120, 3), (145, 10), (0, 0, 255), -1)
+    result = suggest_geometry(frame)
+    assert not result['signal_found']
+
+
 def test_youtube_links_are_restricted_to_video_ids():
     assert youtube_id('https://www.youtube.com/watch?v=7UjyifjnzJg&t=2') == '7UjyifjnzJg'
     assert youtube_id('https://youtu.be/7UjyifjnzJg') == '7UjyifjnzJg'
