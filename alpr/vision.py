@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+from collections import Counter, defaultdict
 import cv2
 import numpy as np
 
@@ -20,6 +21,18 @@ def signal_state(frame, roi):
     if scores[0][0] < 0.015 or scores[0][0] < scores[1][0]*1.5:
         return 'unknown'
     return scores[0][1]
+
+
+def select_plate_read(reads):
+    """Prefer text repeated across frames, then OCR confidence."""
+    reads = [read for read in reads if read]
+    if not reads:
+        return None
+    votes = Counter(read[0] for read in reads)
+    confidence = defaultdict(float)
+    for text, score, _ in reads:
+        confidence[text] += score
+    return max(reads, key=lambda read: (votes[read[0]], confidence[read[0]], read[1]))
 
 
 class PlateReader:

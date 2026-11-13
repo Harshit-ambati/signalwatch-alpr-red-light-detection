@@ -27,3 +27,35 @@ def test_reverse_configured():
 def test_intervals():
     assert parse_intervals('1-2, 3-5')==[(1,2),(3,5)]
     with pytest.raises(ValueError):parse_intervals('5-2')
+
+
+def test_approach_lane_allows_forward_vehicle():
+    rule = CrossingDetector((.2, .5), (.8, .5), direction=-1,
+                            approach_zone=(.3, .55, .7, 1))
+    assert not rule.update(1, (.5, .8), 0, 'red')
+    assert not rule.update(1, (.5, .7), .1, 'red')
+    assert rule.update(1, (.5, .45), .2, 'red')
+
+
+def test_approach_lane_rejects_side_traffic():
+    rule = CrossingDetector((.2, .5), (.8, .5), direction=-1,
+                            approach_zone=(.3, .55, .7, 1))
+    rule.update(1, (.85, .58), 0, 'red')
+    rule.update(1, (.75, .57), .1, 'red')
+    assert not rule.update(1, (.65, .49), .2, 'red')
+
+
+def test_approach_lane_rejects_lateral_drift():
+    rule = CrossingDetector((.2, .5), (.8, .5), direction=-1,
+                            approach_zone=(.2, .55, .8, 1))
+    rule.update(1, (.7, .57), 0, 'red')
+    rule.update(1, (.6, .56), .1, 'red')
+    assert not rule.update(1, (.5, .49), .2, 'red')
+
+
+def test_approach_lane_rejects_crossing_outside_lane_width():
+    rule = CrossingDetector((.2, .5), (.9, .5), direction=-1,
+                            approach_zone=(.3, .55, .8, 1))
+    rule.update(1, (.7, .7), 0, 'red')
+    rule.update(1, (.77, .6), .1, 'red')
+    assert not rule.update(1, (.86, .45), .2, 'red')

@@ -13,6 +13,7 @@ from alpr.evaluate import evaluate, read_ground_truth
 from alpr.rules import parse_intervals
 from alpr.pipeline import process
 from alpr.calibration import suggest_geometry
+from alpr.model_assets import ensure_plate_model
 from alpr.video_source import download_youtube
 
 st.set_page_config(page_title='SignalWatch | Traffic review', page_icon='🚦', layout='wide')
@@ -78,8 +79,11 @@ with setup:
             st.caption('Development sample: 5.16 seconds, 352 × 288. Preset geometry is approximate; plates are too small for dependable recognition.')
         direction = st.selectbox('Crossing direction',['Above to below','Below to above'],index=1 if preset else 0)
         ocr = st.checkbox('Read license plates',value=True)
-        st.caption('Default plate localization is experimental. Unreadable plates stay blank; all OCR needs review.')
-        plate_model = st.text_input('Optional trained plate detector (.pt file)','')
+        plate_method = st.selectbox('Plate localization',
+            ['Pretrained plate detector', 'Heuristic baseline', 'Custom .pt file'],
+            disabled=not ocr)
+        st.caption('The pretrained detector downloads a verified 6 MB model on first use. OCR remains a candidate for human review.')
+        plate_model = st.text_input('Custom plate detector path (.pt)','') if ocr and plate_method == 'Custom .pt file' else ''
         limit = st.number_input('Analyze first N seconds (0 = entire video)',min_value=0,value=60)
     with right:
         if source:
@@ -118,7 +122,30 @@ with setup:
                 with c2:
                     x2 = st.slider('Line end X',0,100,key='line_x2'); y2 = st.slider('Line end Y',0,100,key='line_y2')
                     rx2 = st.slider('Signal right',1,100,key='signal_x2'); ry2 = st.slider('Signal bottom',1,100,key='signal_y2')
+                lane_key = f'{source_key}:{direction}'
+                if direction == 'Below to above':
+                    suggested_lane = [x1, min(99, max(y1, y2) + 3), x2, 100]
+                else:
+                    suggested_lane = [x1, 0, x2, max(1, min(y1, y2) - 3)]
+                lane_keys = ['lane_x1', 'lane_y1', 'lane_x2', 'lane_y2']
+                if st.session_state.get('lane_source') != lane_key:
+                    st.session_state.lane_source = lane_key
+                    for key, value in zip(lane_keys, suggested_lane):
+                        st.session_state[key] = value
+                st.caption('Green box: the monitored approach lane before the stop line. Keep cross traffic outside it.')
+                if st.button('Suggest approach lane again'):
+                    for key, value in zip(lane_keys, suggested_lane):
+                        st.session_state[key] = value
+                    st.rerun()
+                c3, c4 = st.columns(2)
+                with c3:
+                    lane_x1 = st.slider('Lane left', 0, 99, key='lane_x1')
+                    lane_y1 = st.slider('Lane top', 0, 99, key='lane_y1')
+                with c4:
+                    lane_x2 = st.slider('Lane right', 1, 100, key='lane_x2')
+                    lane_y2 = st.slider('Lane bottom', 1, 100, key='lane_y2')
                 h,w = frame.shape[:2]; preview=frame.copy()
+                cv2.rectangle(preview,(lane_x1*w//100,lane_y1*h//100),(lane_x2*w//100,lane_y2*h//100),(50,220,50),2)
                 cv2.line(preview,(x1*w//100,y1*h//100),(x2*w//100,y2*h//100),(0,220,255),3)
                 cv2.rectangle(preview,(rx1*w//100,ry1*h//100),(rx2*w//100,ry2*h//100),(255,150,0),2)
                 st.image(preview,channels='BGR',use_container_width=True)
@@ -128,13 +155,18 @@ with setup:
     if source and st.button('Analyze video',type='primary'):
         try:
             if x1 >= x2: raise ValueError('Line start X must be smaller than line end X.')
+            if lane_x1 >= lane_x2 or lane_y1 >= lane_y2: raise ValueError('Approach lane must have positive width and height.')
             if mode == 'Visible traffic light' and (rx1>=rx2 or ry1>=ry2): raise ValueError('Signal region must have positive width and height.')
             if mode == 'Visible traffic light' and not geometry['signal_found'] and [rx1,ry1,rx2,ry2] == proposed[4:]:
                 raise ValueError('No traffic light was found automatically. Position the blue signal box manually before analyzing.')
             intervals = parse_intervals(intervals_text) if mode=='Manual timeline' else []
             if mode=='Manual timeline' and not intervals: raise ValueError('Enter at least one red interval.')
-            if plate_model and not Path(plate_model).is_file(): raise ValueError('Plate model file does not exist.')
+            if ocr and plate_method == 'Custom .pt file' and not Path(plate_model).is_file():
+                raise ValueError('Custom plate model file does not exist.')
+            if ocr and plate_method == 'Pretrained plate detector':
+                plate_model = str(ensure_plate_model())
             config={'line':[[x1/100,y1/100],[x2/100,y2/100]],'roi':[rx1/100,ry1/100,rx2/100,ry2/100],
+                    'approach_zone':[lane_x1/100,lane_y1/100,lane_x2/100,lane_y2/100],
                     'direction':1 if direction=='Above to below' else -1,'signal_mode':mode,
                     'red_intervals':intervals,'ocr':ocr,'plate_model':plate_model or None,
                     'max_seconds':limit,'review_session_id':st.session_state.review_session_id}
@@ -240,14 +272,14 @@ with evaluation:
         st.info('Analyze or restore a run to evaluate it.')
 with guide:
     st.markdown('''### How it works
-1. Upload a fixed-camera recording or import a public YouTube video. Check the suggested stop line and signal region.
+1. Upload a fixed-camera recording or import a public YouTube video. Check the suggested stop line, signal region, and approach lane.
 2. YOLO detects vehicles; ByteTrack assigns temporary tracking IDs.
 3. A bottom-center vehicle anchor must cross the line in the configured direction while both adjacent observations are red.
-4. Candidate plate regions are read with OCR from several recent vehicle crops.
+4. A trained plate detector finds plate regions in several recent vehicle crops; OCR readings are compared across frames.
 5. Evidence is saved locally for human review and CSV export.
 
 ### Current limitations
-This is a research prototype. Color-based signal detection needs a tightly cropped signal region. Plate localization without a trained plate detector is a simple rectangular-region baseline. Tracking ID changes, occlusion, camera movement, and unreadable plates can produce misses or errors. Turning permissions and jurisdiction-specific rules are not modeled. No fines are issued.
+This is a research prototype. Color-based signal detection needs a tightly cropped signal region. The approach lane must be calibrated for the controlled traffic; turning vehicles remain ambiguous. Tracking ID changes, occlusion, camera movement, and unreadable plates can produce misses or errors. Turning permissions and jurisdiction-specific rules are not modeled. No fines are issued.
 
 ### Video references
 - [Traffic signal detection demonstration](https://www.youtube.com/watch?v=PxHkKLUk_QM)

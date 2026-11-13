@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 import cv2
 from .rules import CrossingDetector
-from .vision import signal_state, PlateReader
+from .vision import signal_state, PlateReader, select_plate_read
 
 
 def box_iou(a, b):
@@ -38,7 +38,8 @@ def process(video, config, progress=None):
     try:
         detector = YOLO('yolo11n.pt')
         reader = PlateReader(config.get('plate_model')) if config['ocr'] else None
-        rules = CrossingDetector(config['line'][0], config['line'][1], config['direction'])
+        rules = CrossingDetector(config['line'][0], config['line'][1], config['direction'],
+                                 approach_zone=config.get('approach_zone'))
         previous_frames = {}
         recent_crops = {}
         recent_reports = []
@@ -65,6 +66,9 @@ def process(video, config, progress=None):
             annotated = frame.copy()
             a,b = [tuple((int(p[0]*w), int(p[1]*h))) for p in config['line']]
             cv2.line(annotated,a,b,(0,200,255),3)
+            if config.get('approach_zone'):
+                lx1, ly1, lx2, ly2 = config['approach_zone']
+                cv2.rectangle(annotated,(int(lx1*w),int(ly1*h)),(int(lx2*w),int(ly2*h)),(50,220,50),2)
             cv2.putText(annotated, f'{state.upper()} | {t:.2f}s', (20,35), 0, 0.8,(255,255,255),2)
             active = set()
             if result.boxes.id is not None:
@@ -80,9 +84,6 @@ def process(video, config, progress=None):
                     crossed = rules.update(track,point,t,state)
                     cv2.rectangle(annotated,(x1,y1),(x2,y2),(40,210,90),2)
                     cv2.putText(annotated,f'ID {track}',(x1,max(15,y1-5)),0,0.5,(40,210,90),1)
-                    if crop.size and index % max(1,int(fps/4)) == 0:
-                        recent_crops.setdefault(track,[]).append(crop.copy())
-                        recent_crops[track] = recent_crops[track][-4:]
                     if crossed:
                         recent_reports = [(when, reported_box) for when, reported_box in recent_reports if t-when <= 0.5]
                         if any(box_iou(box, reported_box) >= 0.7 for _, reported_box in recent_reports):
@@ -96,18 +97,22 @@ def process(video, config, progress=None):
                         cv2.imwrite(str(folder/'vehicle.jpg'),crop)
                         if track in previous_frames:
                             cv2.imwrite(str(folder/'before.jpg'),previous_frames[track])
-                        best = None
+                        reads = []
                         if reader:
                             for candidate in recent_crops.get(track,[]) + [crop]:
                                 read = reader.read(candidate)
-                                if read and (best is None or read[1] > best[1]):
-                                    best = read
+                                if read:
+                                    reads.append(read)
+                        best = select_plate_read(reads)
                         if best:
                             cv2.imwrite(str(folder/'plate.jpg'),best[2])
                         manifest['events'].append({'id':event_id,'track_id':track,'video_seconds':round(t,3),
                             'plate':best[0] if best else '', 'ocr_confidence':round(best[1],3) if best else None,
                             'review':'pending','corrected_plate':'','signal_source':config['signal_mode']})
                         save()
+                    if index % max(1,int(fps/4)) == 0:
+                        recent_crops.setdefault(track,[]).append(crop.copy())
+                        recent_crops[track] = recent_crops[track][-4:]
                     previous_frames[track] = frame
             # Drop disconnected tracks to bound image memory; tracker handles short occlusions.
             for track in list(previous_frames):
