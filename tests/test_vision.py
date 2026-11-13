@@ -11,3 +11,11 @@ def test_signal_colors(color,state):
 
 def test_empty_region_unknown():
     assert signal_state(np.zeros((20,20,3),dtype=np.uint8),(0,0,0,0))=='unknown'
+
+
+def test_compressed_red_signal_hue():
+    # A real compressed red lamp can fall below the old upper-red cutoff of 170.
+    red = cv2.cvtColor(np.uint8([[[168, 248, 180]]]), cv2.COLOR_HSV2BGR)[0, 0]
+    frame = np.zeros((100, 100, 3), dtype=np.uint8)
+    cv2.circle(frame, (50, 50), 15, tuple(int(value) for value in red), -1)
+    assert signal_state(frame, (0, 0, 1, 1)) == 'red'

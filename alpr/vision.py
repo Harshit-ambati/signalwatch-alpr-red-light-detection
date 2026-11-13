@@ -12,7 +12,7 @@ def signal_state(frame, roi):
         return 'unknown'
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     masks = {
-        'red': cv2.inRange(hsv, (0, 100, 120), (10, 255, 255)) | cv2.inRange(hsv, (170, 100, 120), (179, 255, 255)),
+        'red': cv2.inRange(hsv, (0, 100, 120), (10, 255, 255)) | cv2.inRange(hsv, (165, 100, 120), (179, 255, 255)),
         'green': cv2.inRange(hsv, (40, 90, 100), (95, 255, 255)),
         'amber': cv2.inRange(hsv, (15, 100, 120), (35, 255, 255)),
     }
