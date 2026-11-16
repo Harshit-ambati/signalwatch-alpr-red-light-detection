@@ -26,9 +26,11 @@ def test_review_is_saved(tmp_path,monkeypatch):
     app.run(timeout=30)
     session_id=app.session_state['review_session_id']
     result.write_text(json.dumps({'status':'complete','source':'fixture.avi','config':{'signal_mode':'Manual timeline','review_session_id':session_id},
-        'events':[{'id':'0001','track_id':1,'video_seconds':1,'plate':'','review':'pending','corrected_plate':''}]}))
+        'events':[{'id':'0001','track_id':1,'video_seconds':1,'plate':'','review':'pending','corrected_plate':''}],
+        'plate_scans':[{'id':'0001','track_id':2,'video_seconds':.5,'plate':'ABC123','ocr_confidence':.9}]}))
     app.run(timeout=30)
     assert not app.exception
+    assert any(select.label=='Inspect plate scan' for select in app.selectbox)
     next(x for x in app.text_input if x.label=='Human-verified plate').set_value('TEST123')
     next(x for x in app.selectbox if x.label=='Review decision').select('confirmed')
     next(x for x in app.button if x.label=='Save review').click()

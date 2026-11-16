@@ -71,23 +71,32 @@ with setup:
             source = Path(st.session_state.youtube_source)
             if not source.is_file(): source = None
         elif sample != 'None': source = Path(sample)
+        demo = bool(source and source.stat().st_size == 50894047 and
+                    (source.name == 'rlr_occasions.mp4' or upload and upload.name == 'rlr_occasions.mp4'))
+        start = st.number_input('Start at video second',min_value=0,value=20 if demo else 0,
+                                help='Useful when a public compilation changes camera scenes.')
         mode = st.selectbox('Signal source',['Visible traffic light','Manual timeline'])
         st.caption('Manual intervals are supplied labels, not automatic signal recognition. Outside them, state is unknown.')
         intervals_text = st.text_input('Red intervals in video seconds','5-15, 30-45', disabled=mode!='Manual timeline')
         preset = bool(source and source.name=='youtube.mp4')
         if preset:
             st.caption('Development sample: 5.16 seconds, 352 × 288. Preset geometry is approximate; plates are too small for dependable recognition.')
-        direction = st.selectbox('Crossing direction',['Above to below','Below to above'],index=1 if preset else 0)
+        if demo:
+            st.caption('Zenodo demo: seconds 20–31 contain a fixed-camera red-light crossing. Review the proposed calibration before analysis.')
+        direction = st.selectbox('Crossing direction',['Above to below','Below to above'],index=1 if preset or demo else 0)
         ocr = st.checkbox('Read license plates',value=True)
         plate_method = st.selectbox('Plate localization',
             ['Pretrained plate detector', 'Heuristic baseline', 'Custom .pt file'],
             disabled=not ocr)
         st.caption('The pretrained detector downloads a verified 6 MB model on first use. OCR remains a candidate for human review.')
         plate_model = st.text_input('Custom plate detector path (.pt)','') if ocr and plate_method == 'Custom .pt file' else ''
-        limit = st.number_input('Analyze first N seconds (0 = entire video)',min_value=0,value=60)
+        limit = st.number_input('Analyze N seconds from start (0 = to end)',min_value=0,value=11 if demo else 60)
     with right:
         if source:
-            cap = cv2.VideoCapture(str(source)); ok,frame = cap.read(); cap.release()
+            cap = cv2.VideoCapture(str(source))
+            if start:
+                cap.set(cv2.CAP_PROP_POS_MSEC,start*1000)
+            ok,frame = cap.read(); cap.release()
             if not ok:
                 st.error('This file could not be decoded. Try an MP4 encoded with H.264.')
                 source = None
@@ -95,11 +104,15 @@ with setup:
                 st.subheader('Calibrate this camera')
                 st.caption('The app suggests a stop line and signal location from the frame. Check both before analysis; colored lights and road markings can cause wrong suggestions.')
                 st.caption('This detector assumes a fixed camera. On a moving dashcam, the signal and stop line shift during the clip and fixed coordinates cannot give reliable violation results.')
-                source_key = f'{source.resolve()}:{source.stat().st_size}'
+                source_key = f'{source.resolve()}:{source.stat().st_size}:{start}'
                 geometry = suggest_geometry(frame)
                 keys = ['line_x1','line_y1','line_x2','line_y2','signal_x1','signal_y1','signal_x2','signal_y2']
                 proposed = [max(0, min(100, round(value * 100))) for value in
                             geometry['line'][0] + geometry['line'][1] + geometry['roi']]
+                if demo and start == 20:
+                    proposed = [2,57,82,64,58,1,61,7]
+                    geometry['line_found'] = True
+                    geometry['signal_found'] = True
                 proposed[4] = min(99, proposed[4]); proposed[5] = min(99, proposed[5])
                 proposed[6] = max(1, proposed[6]); proposed[7] = max(1, proposed[7])
                 if st.session_state.get('geometry_source') != source_key:
@@ -127,6 +140,8 @@ with setup:
                     suggested_lane = [x1, min(99, max(y1, y2) + 3), x2, 100]
                 else:
                     suggested_lane = [x1, 0, x2, max(1, min(y1, y2) - 3)]
+                if demo and start == 20 and direction == 'Below to above':
+                    suggested_lane = [35,60,72,100]
                 lane_keys = ['lane_x1', 'lane_y1', 'lane_x2', 'lane_y2']
                 if st.session_state.get('lane_source') != lane_key:
                     st.session_state.lane_source = lane_key
@@ -169,7 +184,7 @@ with setup:
                     'approach_zone':[lane_x1/100,lane_y1/100,lane_x2/100,lane_y2/100],
                     'direction':1 if direction=='Above to below' else -1,'signal_mode':mode,
                     'red_intervals':intervals,'ocr':ocr,'plate_model':plate_model or None,
-                    'max_seconds':limit,'review_session_id':st.session_state.review_session_id}
+                    'start_seconds':start,'max_seconds':limit,'review_session_id':st.session_state.review_session_id}
             bar=st.progress(0); status=st.empty(); display=st.empty()
             def update(fraction,image,count):
                 bar.progress(fraction);status.write(f'{count} potential violations recorded');display.image(image,channels='BGR')
@@ -201,9 +216,20 @@ with review:
     else:
         selected=st.selectbox('Analysis',files,format_func=lambda p:p.parent.name)
         data=json.loads(selected.read_text(encoding='utf-8'));events=data['events']
-        a,b,c=st.columns(3)
-        a.metric('Potential violations',len(events));b.metric('Plate candidates',sum(bool(e['plate']) for e in events));c.metric('Pending review',sum(e['review']=='pending' for e in events))
+        scans=data.get('plate_scans',[])
+        a,b,c,d=st.columns(4)
+        a.metric('Potential violations',len(events));b.metric('Violator plate candidates',sum(bool(e['plate']) for e in events))
+        c.metric('Plate scans',len(scans));d.metric('Pending review',sum(e['review']=='pending' for e in events))
         st.caption(f"Status: {data['status']} · Source: {data['source']} · Signal: {data['config']['signal_mode']}")
+        if scans:
+            st.caption('Plate scans are unverified OCR candidates from tracked vehicles. They are not evidence of a violation.')
+            st.dataframe(scans,use_container_width=True)
+            scan_ids=[scan['id'] for scan in scans if 'id' in scan]
+            if scan_ids:
+                scan_id=st.selectbox('Inspect plate scan',scan_ids)
+                scan_image=selected.parent/'scans'/f'{scan_id}.jpg'
+                if scan_image.is_file():
+                    st.image(str(scan_image),caption='Unverified plate crop',width=400)
         if data.get('error'):st.error(data['error'])
         st.download_button('Download complete evidence bundle',export_run(selected.parent),
                            f'signalwatch-{selected.parent.name}.zip','application/zip')
@@ -272,18 +298,18 @@ with evaluation:
         st.info('Analyze or restore a run to evaluate it.')
 with guide:
     st.markdown('''### How it works
-1. Upload a fixed-camera recording or import a public YouTube video. Check the suggested stop line, signal region, and approach lane.
+1. Upload a fixed-camera recording or import a public YouTube video. Choose the start time and check the suggested stop line, signal region, and approach lane.
 2. YOLO detects vehicles; ByteTrack assigns temporary tracking IDs.
 3. A bottom-center vehicle anchor must cross the line in the configured direction while both adjacent observations are red.
-4. A trained plate detector finds plate regions in several recent vehicle crops; OCR readings are compared across frames.
+4. A trained plate detector scans large tracked vehicles, even when no violation is found. OCR readings are compared across frames; violator plate candidates are shown separately.
 5. Evidence is saved locally for human review and CSV export.
 
 ### Current limitations
 This is a research prototype. Color-based signal detection needs a tightly cropped signal region. The approach lane must be calibrated for the controlled traffic; turning vehicles remain ambiguous. Tracking ID changes, occlusion, camera movement, and unreadable plates can produce misses or errors. Turning permissions and jurisdiction-specific rules are not modeled. No fines are issued.
 
 ### Video references
-- [Traffic signal detection demonstration](https://www.youtube.com/watch?v=PxHkKLUk_QM)
-- [Virtual-signal demonstration](https://www.youtube.com/watch?v=K5tCIU_1yP0)
+- [Zenodo fixed-camera crossing sample](https://zenodo.org/records/14041920) — download rlr_occasions.mp4; the app proposes a calibrated 20–31 s excerpt.
+- [High-detail plate sample](https://github.com/FarzadNekouee/Traffic-Violation-Detection/blob/master/traffic_video.mp4) — demonstrates ALPR; its overlaid light graphic is not a verified violation signal.
 
 Use original clips supplied by creators where possible. Demo playback is not proof of model accuracy. Evaluate on independently labelled footage before reporting results.
 ''')

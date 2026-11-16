@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 import pytest
-from alpr.vision import signal_state, select_plate_read
+from alpr.vision import PlateReader, signal_state, select_plate_read
 
 @pytest.mark.parametrize('color,state',[((0,0,255),'red'),((0,255,0),'green'),((0,200,255),'amber'),((0,0,0),'unknown')])
 def test_signal_colors(color,state):
@@ -26,3 +26,21 @@ def test_plate_read_prefers_consensus_over_one_confident_error():
              ('KW527', .64, 'second')]
     assert select_plate_read(reads) == ('KW527', .64, 'second')
     assert select_plate_read([]) is None
+
+
+def test_plate_ocr_keeps_margin_around_detector_box():
+    class Boxes:
+        def cpu(self): return self
+        def tolist(self): return [[10,10,110,40]]
+    class Detector:
+        def __call__(self,*args,**kwargs):
+            return [type('Result',(),{'boxes':type('BoxSet',(),{'xyxy':Boxes()})()})()]
+    class OCR:
+        def readtext(self,image,**kwargs):
+            return [(None,'ABC123',.9)] if image.shape[0] > 90 else []
+    reader=PlateReader.__new__(PlateReader)
+    reader.detector=Detector()
+    reader.reader=OCR()
+    result=reader.read(np.zeros((150,150,3),dtype=np.uint8))
+    assert result[0]=='ABC123'
+    assert result[2].shape[0] > 30

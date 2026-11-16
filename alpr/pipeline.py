@@ -25,10 +25,16 @@ def process(video, config, progress=None):
     if not cap.isOpened() or fps <= 0:
         cap.release()
         raise ValueError('Cannot decode video or determine frame rate.')
+    start_frame = max(0, int(config.get('start_seconds', 0) * fps))
+    if total > 0 and start_frame >= total:
+        cap.release()
+        raise ValueError('Start time is beyond the end of the video.')
+    if start_frame:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
     run = Path('data/runs') / uuid4().hex[:12]
     run.mkdir(parents=True)
     manifest = {'id':run.name, 'created':datetime.now(timezone.utc).isoformat(), 'source':Path(video).name,
-                'config':config, 'status':'processing', 'events':[]}
+                'config':config, 'status':'processing', 'events':[], 'plate_scans':[]}
     def save():
         target = run/'results.json'
         tmp = run/'results.tmp'
@@ -42,17 +48,22 @@ def process(video, config, progress=None):
                                  approach_zone=config.get('approach_zone'))
         previous_frames = {}
         recent_crops = {}
+        recent_reads = {}
+        scan_attempts = {}
+        last_scan_time = {}
+        scan_index = {}
         recent_reports = []
         raw_state, stable_count = 'unknown', 0
         signal_counts = {'red': 0, 'green': 0, 'amber': 0, 'unknown': 0}
-        index = 0
+        index = start_frame
+        processed = 0
         while True:
+            if config.get('max_seconds', 0) and processed/fps >= config['max_seconds']:
+                break
             ok, frame = cap.read()
             if not ok:
                 break
             t = index/fps
-            if config.get('max_seconds', 0) and t >= config['max_seconds']:
-                break
             h,w = frame.shape[:2]
             if config['signal_mode'] == 'Manual timeline':
                 state = 'red' if any(a <= t < b for a,b in config['red_intervals']) else 'unknown'
@@ -84,6 +95,29 @@ def process(video, config, progress=None):
                     crossed = rules.update(track,point,t,state)
                     cv2.rectangle(annotated,(x1,y1),(x2,y2),(40,210,90),2)
                     cv2.putText(annotated,f'ID {track}',(x1,max(15,y1-5)),0,0.5,(40,210,90),1)
+                    # Plate scanning is independent of violation screening. Sample large
+                    # vehicle crops sparingly so the OCR cost remains bounded.
+                    if (reader and x2-x1 >= 120 and y2-y1 >= 75
+                            and scan_attempts.get(track, 0) < 5
+                            and t-last_scan_time.get(track, float('-inf')) >= 1.0):
+                        scan_attempts[track] = scan_attempts.get(track, 0) + 1
+                        last_scan_time[track] = t
+                        read = reader.read(crop)
+                        if read:
+                            recent_reads.setdefault(track, []).append(read)
+                            recent_reads[track] = recent_reads[track][-5:]
+                            best_scan = select_plate_read(recent_reads[track])
+                            if track not in scan_index:
+                                scan_index[track] = len(manifest['plate_scans'])
+                                manifest['plate_scans'].append({'id':f'{scan_index[track]+1:04d}',
+                                                                'track_id':track, 'video_seconds':round(t,3),
+                                                                'plate':best_scan[0], 'ocr_confidence':round(best_scan[1],3)})
+                            else:
+                                manifest['plate_scans'][scan_index[track]].update(
+                                    plate=best_scan[0], ocr_confidence=round(best_scan[1],3))
+                            scan_folder = run/'scans'
+                            scan_folder.mkdir(exist_ok=True)
+                            cv2.imwrite(str(scan_folder/f'{manifest["plate_scans"][scan_index[track]]["id"]}.jpg'),best_scan[2])
                     if crossed:
                         recent_reports = [(when, reported_box) for when, reported_box in recent_reports if t-when <= 0.5]
                         if any(box_iou(box, reported_box) >= 0.7 for _, reported_box in recent_reports):
@@ -97,7 +131,7 @@ def process(video, config, progress=None):
                         cv2.imwrite(str(folder/'vehicle.jpg'),crop)
                         if track in previous_frames:
                             cv2.imwrite(str(folder/'before.jpg'),previous_frames[track])
-                        reads = []
+                        reads = list(recent_reads.get(track, []))
                         if reader:
                             for candidate in recent_crops.get(track,[]) + [crop]:
                                 read = reader.read(candidate)
@@ -120,15 +154,18 @@ def process(video, config, progress=None):
                     previous_frames.pop(track,None)
                     recent_crops.pop(track,None)
             index += 1
-            if progress and index % 10 == 0:
-                expected = min(total, int(config['max_seconds']*fps)) if config.get('max_seconds') else total
-                progress(min(index/max(expected,1),1),annotated,len(manifest['events']))
-        if index == 0:
+            processed += 1
+            if progress and processed % 10 == 0:
+                remaining = max(0, total-start_frame)
+                expected = min(remaining, int(config['max_seconds']*fps)) if config.get('max_seconds') else remaining
+                progress(min(processed/max(expected,1),1),annotated,len(manifest['events']))
+        if processed == 0:
             raise ValueError('No decodable frames found.')
         manifest['status'] = 'complete'
-        manifest['processed_frames'] = index
+        manifest['processed_frames'] = processed
         manifest['diagnostics'] = {'signal_frames': signal_counts,
-                                   'line_crossings': rules.geometry_crossings}
+                                   'line_crossings': rules.geometry_crossings,
+                                   'plate_scan_attempts':sum(scan_attempts.values())}
     except Exception as exc:
         manifest['status'] = 'failed'
         manifest['error'] = str(exc)

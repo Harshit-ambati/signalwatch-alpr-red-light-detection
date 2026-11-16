@@ -52,7 +52,11 @@ class PlateReader:
             result = self.detector(vehicle, verbose=False)[0]
             for box in result.boxes.xyxy.cpu().tolist():
                 x1,y1,x2,y2 = map(int,box)
-                candidates.append(vehicle[max(0,y1):y2,max(0,x1):x2])
+                # OCR loses edge characters when a detector box hugs the glyphs.
+                pad_x = max(2, int((x2-x1) * .03))
+                pad_y = max(2, int((y2-y1) * .10))
+                candidates.append(vehicle[max(0,y1-pad_y):min(vehicle.shape[0],y2+pad_y),
+                                          max(0,x1-pad_x):min(vehicle.shape[1],x2+pad_x)])
         else:
             # Baseline only: bright rectangular regions. A trained plate model is preferable.
             gray = cv2.cvtColor(vehicle, cv2.COLOR_BGR2GRAY)

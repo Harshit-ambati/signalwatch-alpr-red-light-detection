@@ -51,3 +51,34 @@ def test_unreadable_video_does_not_create_completed_run(tmp_path,monkeypatch):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(ValueError,match='Cannot decode'):
         process(tmp_path/'missing.mp4',{})
+
+
+def test_plate_scanning_is_independent_of_violation_and_start_is_respected(tmp_path,monkeypatch):
+    import ultralytics
+    import alpr.pipeline as pipeline
+    monkeypatch.chdir(tmp_path)
+    video=tmp_path/'test.avi'
+    writer=cv2.VideoWriter(str(video),cv2.VideoWriter_fourcc(*'MJPG'),10,(200,200))
+    for _ in range(20):writer.write(np.zeros((200,200,3),dtype=np.uint8))
+    writer.release()
+    class Detector:
+        def __init__(self,*args):pass
+        def track(self,*args,**kwargs):
+            return [SimpleNamespace(boxes=SimpleNamespace(
+                id=Tensor([1]),xyxy=Tensor([[20,20,180,180]])))]
+    class Reader:
+        def __init__(self,*args):pass
+        def read(self,crop):return ('ABC123',.9,crop)
+    monkeypatch.setattr(ultralytics,'YOLO',Detector)
+    monkeypatch.setattr(pipeline,'PlateReader',Reader)
+    config={'line':[[.2,.5],[.8,.5]],'direction':1,'ocr':True,
+            'signal_mode':'Manual timeline','red_intervals':[],
+            'start_seconds':1,'max_seconds':.5}
+    run=process(video,config)
+    result=json.loads((run/'results.json').read_text())
+    assert result['processed_frames']==5
+    assert result['events']==[]
+    assert result['plate_scans'][0]['plate']=='ABC123'
+    assert result['plate_scans'][0]['video_seconds']==1.0
+    assert result['diagnostics']['plate_scan_attempts']==1
+    assert (run/'scans'/'0001.jpg').is_file()
