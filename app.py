@@ -75,8 +75,11 @@ with setup:
                     (source.name == 'rlr_occasions.mp4' or upload and upload.name == 'rlr_occasions.mp4'))
         start = st.number_input('Start at video second',min_value=0,value=20 if demo else 0,
                                 help='Useful when a public compilation changes camera scenes.')
-        mode = st.selectbox('Signal source',['Visible traffic light','Manual timeline'])
-        st.caption('Manual intervals are supplied labels, not automatic signal recognition. Outside them, state is unknown.')
+        mode = st.selectbox('Analysis mode',['Visible traffic light','Manual timeline','Plate scan only'])
+        if mode == 'Plate scan only':
+            st.caption('Scan tracked vehicles for plates. This mode does not report red-light violations.')
+        else:
+            st.caption('Manual intervals are supplied labels, not automatic signal recognition. Outside them, state is unknown.')
         intervals_text = st.text_input('Red intervals in video seconds','5-15, 30-45', disabled=mode!='Manual timeline')
         preset = bool(source and source.name=='youtube.mp4')
         if preset:
@@ -127,7 +130,7 @@ with setup:
                     st.warning('No clear road line was found. Position the yellow line manually.')
                 if mode == 'Visible traffic light' and not geometry['signal_found']:
                     st.warning('No clear signal light was found. Position the blue box manually.')
-                st.caption('Coordinates are percentages of the frame. The yellow line must match the stop line; the blue box must include only the signal for the monitored lane.')
+                st.caption('Coordinates are percentages of the frame. In violation modes, the yellow line must match the stop line and the blue box must include only the signal for the monitored lane.')
                 c1,c2 = st.columns(2)
                 with c1:
                     x1 = st.slider('Line start X',0,100,key='line_x1'); y1 = st.slider('Line start Y',0,100,key='line_y1')
@@ -163,7 +166,7 @@ with setup:
                 cv2.rectangle(preview,(lane_x1*w//100,lane_y1*h//100),(lane_x2*w//100,lane_y2*h//100),(50,220,50),2)
                 cv2.line(preview,(x1*w//100,y1*h//100),(x2*w//100,y2*h//100),(0,220,255),3)
                 cv2.rectangle(preview,(rx1*w//100,ry1*h//100),(rx2*w//100,ry2*h//100),(255,150,0),2)
-                st.image(preview,channels='BGR',use_container_width=True)
+                st.image(preview,channels='BGR',width='stretch')
                 st.caption('For the direction labels to apply, keep line start X smaller than line end X. Only vehicles crossing this finite segment are considered.')
         else:
             st.info('Choose a video source to calibrate the camera. Your final recording can replace the sample later.')
@@ -220,10 +223,10 @@ with review:
         a,b,c,d=st.columns(4)
         a.metric('Potential violations',len(events));b.metric('Violator plate candidates',sum(bool(e['plate']) for e in events))
         c.metric('Plate scans',len(scans));d.metric('Pending review',sum(e['review']=='pending' for e in events))
-        st.caption(f"Status: {data['status']} · Source: {data['source']} · Signal: {data['config']['signal_mode']}")
+        st.caption(f"Status: {data['status']} · Source: {data['source']} · Mode: {data['config']['signal_mode']}")
         if scans:
             st.caption('Plate scans are unverified OCR candidates from tracked vehicles. They are not evidence of a violation.')
-            st.dataframe(scans,use_container_width=True)
+            st.dataframe(scans,width='stretch')
             scan_ids=[scan['id'] for scan in scans if 'id' in scan]
             if scan_ids:
                 scan_id=st.selectbox('Inspect plate scan',scan_ids)
@@ -234,14 +237,14 @@ with review:
         st.download_button('Download complete evidence bundle',export_run(selected.parent),
                            f'signalwatch-{selected.parent.name}.zip','application/zip')
         if events:
-            st.dataframe(events,use_container_width=True)
+            st.dataframe(events,width='stretch')
             export=io.StringIO();writer=csv.DictWriter(export,fieldnames=events[0].keys());writer.writeheader();writer.writerows(events)
             st.download_button('Export event CSV',export.getvalue(),'events.csv','text/csv')
             event_id=st.selectbox('Inspect evidence',[e['id'] for e in events])
             event=next(e for e in events if e['id']==event_id);folder=selected.parent/event_id
             columns=st.columns(3)
             for col,name,label in zip(columns,['before.jpg','crossing.jpg','plate.jpg'],['Before crossing','Crossing evidence','Plate candidate']):
-                if (folder/name).exists():col.image(str(folder/name),caption=label,use_container_width=True)
+                if (folder/name).exists():col.image(str(folder/name),caption=label,width='stretch')
                 else:col.info(f'{label}: unavailable')
             evidence=io.BytesIO()
             with ZipFile(evidence,'w') as archive:
@@ -301,7 +304,7 @@ with guide:
 1. Upload a fixed-camera recording or import a public YouTube video. Choose the start time and check the suggested stop line, signal region, and approach lane.
 2. YOLO detects vehicles; ByteTrack assigns temporary tracking IDs.
 3. A bottom-center vehicle anchor must cross the line in the configured direction while both adjacent observations are red.
-4. A trained plate detector scans large tracked vehicles, even when no violation is found. OCR readings are compared across frames; violator plate candidates are shown separately.
+4. A trained plate detector scans large tracked vehicles, even when no violation is found. OCR readings are compared across frames; violator plate candidates are shown separately. Use Plate scan only for footage without a verified traffic signal.
 5. Evidence is saved locally for human review and CSV export.
 
 ### Current limitations

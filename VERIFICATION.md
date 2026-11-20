@@ -31,3 +31,9 @@ The current plate proposal method is experimental. Signal color thresholds and r
 - [Farzad Nekouee's `traffic_video.mp4`](https://github.com/FarzadNekouee/Traffic-Violation-Detection/blob/master/traffic_video.mp4), original 1920 × 1012 file, first 3 seconds: plate scan candidate **KW527** on track 2, matching the clearly visible source plate, with no violation event claimed. The clip has a traffic-light graphic overlay and no independently verified stop line.
 - Root causes addressed: plate reading previously ran only after a violation event, and a tight detector crop dropped enough plate border for OCR to fail on a clear example. Plate scanning now runs independently at a bounded rate; event OCR can reuse those reads; detector crops include a small margin. Start-time selection lets the user isolate a stable camera scene in a compilation.
 - These two examples demonstrate separate positive crossing and plate-scan paths. Neither establishes a verified violator plate or precision/recall. The public source files remain local and excluded from the repository.
+
+## Presentation check — 20 November 2026
+
+- Streamlit `AppTest` selected the local `rlr_occasions.mp4` sample and confirmed the 20-second start, 11-second duration, below-to-above direction, and tested line/signal/lane coordinates were populated automatically. Clicking **Analyze video** completed without app errors and the review page showed **one potential violation**.
+- Streamlit `AppTest` selected the local `farzad_traffic_video.mp4` sample, **Plate scan only**, and a three-second duration. Analysis completed without app errors; the review page showed **zero potential violations, one plate scan**, and OCR candidate `KW527`.
+- The plate-only mode avoids requiring a signal or claiming a violation for the overlaid-light sample. Full local test suite: **40 passed**.

@@ -65,7 +65,9 @@ def process(video, config, progress=None):
                 break
             t = index/fps
             h,w = frame.shape[:2]
-            if config['signal_mode'] == 'Manual timeline':
+            if config['signal_mode'] == 'Plate scan only':
+                state = 'unknown'
+            elif config['signal_mode'] == 'Manual timeline':
                 state = 'red' if any(a <= t < b for a,b in config['red_intervals']) else 'unknown'
             else:
                 observed = signal_state(frame, config['roi'])

@@ -1,4 +1,4 @@
-streamlit>=1.40,<2
+streamlit>=1.49,<2
 ultralytics>=8.3,<9
 opencv-python-headless>=4.10,<5
 easyocr>=1.7,<2

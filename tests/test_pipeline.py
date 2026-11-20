@@ -72,7 +72,7 @@ def test_plate_scanning_is_independent_of_violation_and_start_is_respected(tmp_p
     monkeypatch.setattr(ultralytics,'YOLO',Detector)
     monkeypatch.setattr(pipeline,'PlateReader',Reader)
     config={'line':[[.2,.5],[.8,.5]],'direction':1,'ocr':True,
-            'signal_mode':'Manual timeline','red_intervals':[],
+            'signal_mode':'Plate scan only','red_intervals':[],
             'start_seconds':1,'max_seconds':.5}
     run=process(video,config)
     result=json.loads((run/'results.json').read_text())
